@@ -76,6 +76,68 @@ def parse_note_card(item: dict) -> dict:
     }
 
 
+async def extract_feeds_from_dom(page: Page) -> list[dict]:
+    """Extract feed cards directly from DOM elements (fallback when __INITIAL_STATE__ unavailable)."""
+    result = await page.evaluate("""() => {
+        const feeds = [];
+        // Try note-item cards (search results and homepage)
+        const cards = document.querySelectorAll('section.note-item, [class*="note-item"]');
+        cards.forEach(card => {
+            const link = card.querySelector('a[href*="/explore/"], a[href*="/search_result/"]');
+            if (!link) return;
+
+            const href = link.getAttribute('href') || '';
+
+            // Extract note_id from URL
+            let note_id = '';
+            const idMatch = href.match(/(?:explore|search_result)\\/([a-f0-9]+)/);
+            if (idMatch) note_id = idMatch[1];
+
+            // Extract xsec_token from URL
+            let xsec_token = '';
+            const tokenMatch = href.match(/xsec_token=([^&]+)/);
+            if (tokenMatch) xsec_token = tokenMatch[1];
+
+            // Title
+            const titleEl = card.querySelector('.title, [class*="title"], span.title');
+            const title = titleEl ? titleEl.textContent.trim() : '';
+
+            // Author
+            const authorEl = card.querySelector('.author-wrapper .name, [class*="author"] .name, .nickname');
+            const author_name = authorEl ? authorEl.textContent.trim() : '';
+
+            // Author avatar
+            const avatarEl = card.querySelector('.author-wrapper img, [class*="author"] img');
+            const author_avatar = avatarEl ? (avatarEl.getAttribute('src') || '') : '';
+
+            // Like count
+            const likeEl = card.querySelector('.like-wrapper .count, [class*="like"] .count, span.count');
+            const liked_count = likeEl ? likeEl.textContent.trim() : '0';
+
+            // Cover image
+            const coverEl = card.querySelector('img.cover, a.cover img, img');
+            const cover_url = coverEl ? (coverEl.getAttribute('src') || '') : '';
+
+            // Type (video indicator)
+            const videoIcon = card.querySelector('[class*="video"], svg[class*="video"]');
+            const type = videoIcon ? 'video' : 'normal';
+
+            if (note_id) {
+                feeds.push({
+                    note_id, xsec_token, title, description: '',
+                    type, liked_count, cover_url,
+                    author_id: '', author_name, author_avatar,
+                });
+            }
+        });
+        return JSON.stringify(feeds);
+    }""")
+    try:
+        return json.loads(result) if result else []
+    except json.JSONDecodeError:
+        return []
+
+
 async def safe_close_page(page: Page):
     """Close page, ignoring errors."""
     try:

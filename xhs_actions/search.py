@@ -6,7 +6,7 @@ from patchright.async_api import Page
 
 from browser_manager import get_browser
 from models import FilterOption
-from utils import extract_initial_state, parse_note_card, wait_for_navigation, sleep_random, safe_close_page
+from utils import extract_initial_state, extract_feeds_from_dom, parse_note_card, wait_for_navigation, sleep_random, safe_close_page
 
 logger = logging.getLogger("xhs.search")
 
@@ -91,22 +91,17 @@ async def search_feeds(keyword: str, filters: FilterOption | None = None) -> dic
             # Wait for results to reload after filters
             await sleep_random(1.5, 2.5)
 
-        # Try extracting with retries — __INITIAL_STATE__ may populate async
-        feeds_data = None
-        for attempt in range(5):
-            feeds_data = await extract_initial_state(page, "search.feeds")
-            if feeds_data and isinstance(feeds_data, list) and len(feeds_data) > 0:
-                break
-            logger.debug(f"search.feeds attempt {attempt+1}: got {type(feeds_data).__name__}, retrying...")
-            await sleep_random(1, 2)
+        # Try __INITIAL_STATE__ first (legacy)
+        feeds_data = await extract_initial_state(page, "search.feeds")
+        if feeds_data and isinstance(feeds_data, list) and len(feeds_data) > 0:
+            feeds = [parse_note_card(item) for item in feeds_data if isinstance(item, dict)]
+            logger.info(f"Search extracted {len(feeds)} feeds via __INITIAL_STATE__")
+            return {"feeds": feeds, "count": len(feeds)}
 
-        if not feeds_data or not isinstance(feeds_data, list):
-            # Debug: dump what keys exist in __INITIAL_STATE__
-            keys = await page.evaluate("() => { try { return Object.keys(window.__INITIAL_STATE__ || {}).join(','); } catch(e) { return 'error:'+e.message; } }")
-            logger.warning(f"search.feeds empty. __INITIAL_STATE__ keys: {keys}")
-            return {"feeds": [], "count": 0}
-
-        feeds = [parse_note_card(item) for item in feeds_data if isinstance(item, dict)]
+        # Fallback: extract from DOM
+        logger.info("__INITIAL_STATE__ unavailable, extracting from DOM")
+        feeds = await extract_feeds_from_dom(page)
+        logger.info(f"Search extracted {len(feeds)} feeds via DOM")
         return {"feeds": feeds, "count": len(feeds)}
     finally:
         await safe_close_page(page)
