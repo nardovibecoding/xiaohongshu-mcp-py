@@ -105,11 +105,20 @@ async def extract_feeds_from_dom(page: Page) -> list[dict]:
             const title = titleEl ? titleEl.textContent.trim() : '';
 
             // Author
-            const authorEl = card.querySelector('.author-wrapper .name, [class*="author"] .name, .nickname');
+            const authorLink = card.querySelector('a.author, a[href*="/user/profile/"]');
+            const authorEl = card.querySelector('.author-wrapper .name, [class*="author"] .name, .nickname, a.author .name');
             const author_name = authorEl ? authorEl.textContent.trim() : '';
 
+            // Author ID from profile link
+            let author_id = '';
+            if (authorLink) {
+                const authorHref = authorLink.getAttribute('href') || '';
+                const authorMatch = authorHref.match(/profile\/([^?]+)/);
+                if (authorMatch) author_id = authorMatch[1];
+            }
+
             // Author avatar
-            const avatarEl = card.querySelector('.author-wrapper img, [class*="author"] img');
+            const avatarEl = card.querySelector('.author-wrapper img, [class*="author"] img, a.author img');
             const author_avatar = avatarEl ? (avatarEl.getAttribute('src') || '') : '';
 
             // Like count
@@ -128,7 +137,7 @@ async def extract_feeds_from_dom(page: Page) -> list[dict]:
                 feeds.push({
                     note_id, xsec_token, title, description: '',
                     type, liked_count, cover_url,
-                    author_id: '', author_name, author_avatar,
+                    author_id, author_name, author_avatar,
                 });
             }
         });
