@@ -231,6 +231,26 @@ async def debug_screenshot(request: Request):
         page_url = page.url
         state_keys = await page.evaluate("() => { try { return Object.keys(window.__INITIAL_STATE__ || {}).join(','); } catch(e) { return 'error:'+e.message; } }")
         html_len = await page.evaluate("() => document.documentElement.outerHTML.length")
-        return _ok({"title": title, "url": page_url, "state_keys": state_keys, "html_length": html_len, "screenshot": path})
+        # Check for feed card elements in DOM
+        dom_info = await page.evaluate("""() => {
+            const cards = document.querySelectorAll('section.note-item, a.cover, [class*="note-item"], [class*="feed-card"]');
+            const links = [];
+            document.querySelectorAll('a[href*="/explore/"], a[href*="/search_result/"]').forEach(a => {
+                links.push(a.href.substring(0, 80));
+            });
+            // Check for any global state vars
+            const globals = [];
+            for (const k of Object.keys(window)) {
+                if (k.startsWith('__') && k.endsWith('__')) globals.push(k);
+            }
+            return {
+                card_count: cards.length,
+                link_count: links.length,
+                sample_links: links.slice(0, 5),
+                dunder_globals: globals,
+                card_classes: Array.from(new Set([...document.querySelectorAll('[class*="note"]')].map(e => e.className.substring(0, 60)))).slice(0, 10),
+            };
+        }""")
+        return _ok({"title": title, "url": page_url, "state_keys": state_keys, "html_length": html_len, "screenshot": path, "dom_info": dom_info})
     finally:
         await safe_close_page(page)
