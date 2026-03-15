@@ -74,6 +74,13 @@ async def search_feeds(keyword: str, filters: FilterOption | None = None) -> dic
         url = SEARCH_URL.format(keyword=urllib.parse.quote(keyword))
         await wait_for_navigation(page, url)
 
+        # Wait for search results to render in DOM
+        try:
+            await page.wait_for_selector('.feeds-container section, .search-result-container, [class*="note-item"]', timeout=10000)
+        except Exception:
+            logger.debug("No search result container found, trying __INITIAL_STATE__ anyway")
+        await sleep_random(1, 2)
+
         # Apply filters if provided
         if filters:
             for field in ["sort_by", "note_type", "publish_time", "search_scope", "location"]:
@@ -84,8 +91,19 @@ async def search_feeds(keyword: str, filters: FilterOption | None = None) -> dic
             # Wait for results to reload after filters
             await sleep_random(1.5, 2.5)
 
-        feeds_data = await extract_initial_state(page, "search.feeds")
+        # Try extracting with retries — __INITIAL_STATE__ may populate async
+        feeds_data = None
+        for attempt in range(5):
+            feeds_data = await extract_initial_state(page, "search.feeds")
+            if feeds_data and isinstance(feeds_data, list) and len(feeds_data) > 0:
+                break
+            logger.debug(f"search.feeds attempt {attempt+1}: got {type(feeds_data).__name__}, retrying...")
+            await sleep_random(1, 2)
+
         if not feeds_data or not isinstance(feeds_data, list):
+            # Debug: dump what keys exist in __INITIAL_STATE__
+            keys = await page.evaluate("() => { try { return Object.keys(window.__INITIAL_STATE__ || {}).join(','); } catch(e) { return 'error:'+e.message; } }")
+            logger.warning(f"search.feeds empty. __INITIAL_STATE__ keys: {keys}")
             return {"feeds": [], "count": 0}
 
         feeds = [parse_note_card(item) for item in feeds_data if isinstance(item, dict)]
