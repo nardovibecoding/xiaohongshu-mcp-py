@@ -172,6 +172,87 @@ async def _load_comments(page: Page, load_all: bool, limit: int,
     return comments[:limit]
 
 
+async def _extract_detail_from_dom(page: Page, feed_id: str) -> dict:
+    """Extract note detail directly from DOM elements."""
+    result = await page.evaluate("""(feedId) => {
+        const detail = { note_id: feedId };
+
+        // Title
+        const titleEl = document.querySelector('#detail-title, .title, [class*="note-title"]');
+        detail.title = titleEl ? titleEl.textContent.trim() : document.title.split(' - ')[0] || '';
+
+        // Description
+        const descEl = document.querySelector('#detail-desc, .desc, [class*="note-text"], [class*="content"] .note-text');
+        detail.description = descEl ? descEl.textContent.trim() : '';
+
+        // Author info
+        const authorNameEl = document.querySelector('.author-wrapper .username, .author-container .username, a.name');
+        detail.author = {
+            nickname: authorNameEl ? authorNameEl.textContent.trim() : '',
+            user_id: '',
+            avatar: '',
+        };
+        const authorLink = document.querySelector('a[href*="/user/profile/"]');
+        if (authorLink) {
+            const m = authorLink.getAttribute('href').match(/profile\/([^?]+)/);
+            if (m) detail.author.user_id = m[1];
+        }
+        const authorAvatar = document.querySelector('.author-wrapper img, .author-container img');
+        if (authorAvatar) detail.author.avatar = authorAvatar.getAttribute('src') || '';
+
+        // Interaction counts
+        const likeEl = document.querySelector('.like-wrapper .count, [class*="like"] .count');
+        const collectEl = document.querySelector('.collect-wrapper .count, [class*="collect"] .count');
+        const commentEl = document.querySelector('.chat-wrapper .count, [class*="comment"] .count');
+        const shareEl = document.querySelector('.share-wrapper .count, [class*="share"] .count');
+        detail.liked_count = likeEl ? likeEl.textContent.trim() : '0';
+        detail.collected_count = collectEl ? collectEl.textContent.trim() : '0';
+        detail.comment_count = commentEl ? commentEl.textContent.trim() : '0';
+        detail.share_count = shareEl ? shareEl.textContent.trim() : '0';
+
+        // Check if liked/collected (active state)
+        const likeActive = document.querySelector('.like-wrapper.active, [class*="like"].active');
+        const collectActive = document.querySelector('.collect-wrapper.active, [class*="collect"].active');
+        detail.liked = !!likeActive;
+        detail.collected = !!collectActive;
+
+        // Images
+        detail.images = [];
+        document.querySelectorAll('.swiper-slide img, .carousel img, [class*="slide"] img').forEach(img => {
+            const src = img.getAttribute('src') || '';
+            if (src && !src.includes('avatar')) {
+                detail.images.push({ url: src, width: img.naturalWidth || 0, height: img.naturalHeight || 0 });
+            }
+        });
+
+        // Tags
+        detail.tags = [];
+        document.querySelectorAll('.tag, a.tag, [class*="hashtag"]').forEach(tag => {
+            detail.tags.push({ id: '', name: tag.textContent.trim().replace(/^#/, '') });
+        });
+
+        // Date/time
+        const dateEl = document.querySelector('.date, .time, [class*="publish-date"]');
+        detail.time = dateEl ? dateEl.textContent.trim() : '';
+
+        // IP location
+        const ipEl = document.querySelector('.ip-info, [class*="location"]');
+        detail.ip_location = ipEl ? ipEl.textContent.trim() : '';
+
+        // Video
+        const videoEl = document.querySelector('video source, video');
+        detail.video_url = videoEl ? (videoEl.getAttribute('src') || videoEl.querySelector('source')?.getAttribute('src') || '') : '';
+
+        detail.type = detail.video_url ? 'video' : 'normal';
+
+        return JSON.stringify(detail);
+    }""", feed_id)
+    try:
+        return json.loads(result) if result else {}
+    except json.JSONDecodeError:
+        return {}
+
+
 async def get_feed_detail(feed_id: str, xsec_token: str,
                            load_all_comments: bool = False,
                            limit: int = 20,
@@ -186,11 +267,15 @@ async def get_feed_detail(feed_id: str, xsec_token: str,
         await page.goto(url, wait_until="domcontentloaded", timeout=60000)
         await sleep_random(2, 3)
 
-        # Extract note detail
+        # Extract note detail — try __INITIAL_STATE__ first, fallback to DOM
         detail_map = await extract_initial_state(page, "note.noteDetailMap")
         detail = {}
         if detail_map and isinstance(detail_map, dict):
             detail = _parse_detail(detail_map, feed_id)
+
+        if not detail or not detail.get("title"):
+            logger.info("__INITIAL_STATE__ unavailable, extracting detail from DOM")
+            detail = await _extract_detail_from_dom(page, feed_id)
 
         # Load comments
         comments = await _load_comments(
