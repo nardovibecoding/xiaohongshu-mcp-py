@@ -59,9 +59,10 @@ async def health():
     return JSONResponse({"status": "ok"})
 
 
-# Mount MCP streamable HTTP handler at /mcp
+# Mount MCP streamable HTTP handler — mcp_app has its own /mcp route,
+# so mount at root so endpoint is at /mcp
 mcp_app = mcp.streamable_http_app()
-app.mount("/mcp", mcp_app)
+app.mount("/", mcp_app)
 
 
 def main():
