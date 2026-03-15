@@ -233,22 +233,21 @@ async def debug_screenshot(request: Request):
         html_len = await page.evaluate("() => document.documentElement.outerHTML.length")
         # Check for feed card elements in DOM
         dom_info = await page.evaluate("""() => {
-            const cards = document.querySelectorAll('section.note-item, a.cover, [class*="note-item"], [class*="feed-card"]');
-            const links = [];
-            document.querySelectorAll('a[href*="/explore/"], a[href*="/search_result/"]').forEach(a => {
-                links.push(a.href.substring(0, 80));
-            });
-            // Check for any global state vars
-            const globals = [];
-            for (const k of Object.keys(window)) {
-                if (k.startsWith('__') && k.endsWith('__')) globals.push(k);
+            const cards = document.querySelectorAll('section.note-item, [class*="note-item"]');
+            const firstCard = cards[0];
+            let firstCardInfo = null;
+            if (firstCard) {
+                const allLinks = [...firstCard.querySelectorAll('a')].map(a => ({
+                    href: (a.getAttribute('href') || '').substring(0, 100),
+                    classes: a.className.substring(0, 50),
+                }));
+                const allAttrs = [...firstCard.attributes].map(a => a.name + '=' + a.value.substring(0, 30));
+                const innerHTML = firstCard.innerHTML.substring(0, 500);
+                firstCardInfo = { links: allLinks, attrs: allAttrs, innerHTML_preview: innerHTML };
             }
             return {
                 card_count: cards.length,
-                link_count: links.length,
-                sample_links: links.slice(0, 5),
-                dunder_globals: globals,
-                card_classes: Array.from(new Set([...document.querySelectorAll('[class*="note"]')].map(e => e.className.substring(0, 60)))).slice(0, 10),
+                first_card: firstCardInfo,
             };
         }""")
         return _ok({"title": title, "url": page_url, "state_keys": state_keys, "html_length": html_len, "screenshot": path, "dom_info": dom_info})

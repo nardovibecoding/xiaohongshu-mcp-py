@@ -83,7 +83,9 @@ async def extract_feeds_from_dom(page: Page) -> list[dict]:
         // Try note-item cards (search results and homepage)
         const cards = document.querySelectorAll('section.note-item, [class*="note-item"]');
         cards.forEach(card => {
-            const link = card.querySelector('a[href*="/explore/"], a[href*="/search_result/"]');
+            // Prefer link with xsec_token (search_result links have it)
+            let link = card.querySelector('a[href*="xsec_token"]');
+            if (!link) link = card.querySelector('a[href*="/search_result/"], a[href*="/explore/"]');
             if (!link) return;
 
             const href = link.getAttribute('href') || '';
