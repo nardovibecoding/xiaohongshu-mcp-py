@@ -36,7 +36,7 @@ def _err(msg: str, code: int = 500) -> JSONResponse:
 # --- Login ---
 
 @router.get("/login/status")
-async def login_status_handler():
+async def login_status_handler(request: Request = None):
     try:
         result = await check_login_status()
         return _ok(result)
@@ -45,7 +45,7 @@ async def login_status_handler():
 
 
 @router.get("/login/qrcode")
-async def login_qrcode_handler():
+async def login_qrcode_handler(request: Request = None):
     try:
         result = await get_login_qrcode()
         return _ok(result)
@@ -54,7 +54,7 @@ async def login_qrcode_handler():
 
 
 @router.delete("/login/cookies")
-async def delete_cookies_handler():
+async def delete_cookies_handler(request: Request = None):
     try:
         path = _delete_cookies()
         return _ok({"cookie_path": path, "message": "Cookies deleted"})
@@ -65,7 +65,7 @@ async def delete_cookies_handler():
 # --- Feeds ---
 
 @router.get("/feeds/list")
-async def list_feeds_handler():
+async def list_feeds_handler(request: Request = None):
     try:
         result = await list_feeds()
         return _ok(result)
@@ -123,7 +123,7 @@ async def user_profile_handler(request: Request):
 
 
 @router.get("/user/me")
-async def my_profile_handler():
+async def my_profile_handler(request: Request = None):
     """Get current logged-in user's profile."""
     try:
         login = await check_login_status()
