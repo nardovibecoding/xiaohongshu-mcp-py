@@ -8,6 +8,7 @@ from models import (
     PostCommentArgs, ReplyCommentArgs, LikeFeedArgs, FavoriteFeedArgs,
     PublishContentArgs, PublishVideoArgs, FilterOption,
 )
+import base64
 from cookie_manager import delete_cookies as _delete_cookies, get_cookie_path
 from xhs_actions.login import check_login_status, get_login_qrcode
 from xhs_actions.feeds import list_feeds
@@ -18,6 +19,8 @@ from xhs_actions.like_favorite import like_feed, favorite_feed
 from xhs_actions.comment import post_comment, reply_comment
 from xhs_actions.publish_image import publish_content
 from xhs_actions.publish_video import publish_with_video
+from browser_manager import get_browser
+from utils import safe_close_page
 
 router = APIRouter(prefix="/api/v1")
 
@@ -208,3 +211,26 @@ async def publish_video_handler(request: Request):
         return _ok(result)
     except Exception as e:
         return _err(str(e))
+
+
+# --- Debug ---
+
+@router.get("/debug/screenshot")
+async def debug_screenshot(request: Request):
+    """Navigate to a URL, save screenshot to /tmp, return page info."""
+    url = request.query_params.get("url", "https://www.xiaohongshu.com/search_result?keyword=test&source=web_search_result_note")
+    bm = await get_browser()
+    page = await bm.new_page()
+    try:
+        await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+        import asyncio
+        await asyncio.sleep(5)
+        path = "/tmp/xhs_debug.png"
+        await page.screenshot(path=path, full_page=True)
+        title = await page.title()
+        page_url = page.url
+        state_keys = await page.evaluate("() => { try { return Object.keys(window.__INITIAL_STATE__ || {}).join(','); } catch(e) { return 'error:'+e.message; } }")
+        html_len = await page.evaluate("() => document.documentElement.outerHTML.length")
+        return _ok({"title": title, "url": page_url, "state_keys": state_keys, "html_length": html_len, "screenshot": path})
+    finally:
+        await safe_close_page(page)
