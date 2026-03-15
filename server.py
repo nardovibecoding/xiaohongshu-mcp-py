@@ -8,6 +8,7 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import JSONResponse
+from starlette.routing import Mount
 
 from browser_manager import get_browser
 from api_routes import router as api_router
@@ -22,6 +23,9 @@ logger = logging.getLogger("xhs.server")
 
 # Headless flag — set by CLI args before app starts
 _headless = True
+
+# Create the MCP ASGI app — it has its own lifespan that manages the session
+mcp_app = mcp.streamable_http_app()
 
 
 @asynccontextmanager
@@ -59,10 +63,8 @@ async def health():
     return JSONResponse({"status": "ok"})
 
 
-# Mount MCP streamable HTTP handler — mcp_app has its own /mcp route,
-# so mount at root so endpoint is at /mcp
-mcp_app = mcp.streamable_http_app()
-app.mount("/", mcp_app)
+# Mount MCP as a sub-application at /mcp — Starlette's Mount propagates lifespan
+app.router.routes.append(Mount("/mcp", app=mcp_app))
 
 
 def main():
