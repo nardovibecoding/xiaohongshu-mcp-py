@@ -1,17 +1,17 @@
-"""XHS MCP Server — FastAPI + MCP on same port via uvicorn."""
+"""XHS MCP Server — Starlette app with MCP + REST on same port."""
 
 import argparse
 import logging
 from contextlib import asynccontextmanager
 
 import uvicorn
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from starlette.responses import JSONResponse, Response
+from starlette.applications import Starlette
+from starlette.middleware.cors import CORSMiddleware
+from starlette.responses import JSONResponse
 from starlette.requests import Request
+from starlette.routing import Route, Mount
 
 from browser_manager import get_browser
-from api_routes import router as api_router
 from mcp_tools import mcp
 
 # Configure logging
@@ -21,25 +21,62 @@ logging.basicConfig(
 )
 logger = logging.getLogger("xhs.server")
 
-# Headless flag — set by CLI args before app starts
+# Headless flag
 _headless = True
 
-# Build MCP app first (creates session manager internally), then grab session manager
-_mcp_starlette_app = mcp.streamable_http_app()
+# Create MCP app — this also creates the session manager internally
+mcp_app = mcp.streamable_http_app()
 _session_manager = mcp.session_manager
 
 
+# Health check
+async def health(request: Request):
+    return JSONResponse({"status": "ok"})
+
+
+# Import REST route handlers
+from api_routes import (
+    login_status_handler, login_qrcode_handler, delete_cookies_handler,
+    list_feeds_handler, search_feeds_handler, feed_detail_handler,
+    user_profile_handler, my_profile_handler,
+    post_comment_handler, reply_comment_handler,
+    like_feed_handler, favorite_feed_handler,
+    publish_handler, publish_video_handler,
+    debug_screenshot,
+)
+
+
+rest_routes = [
+    Route("/health", health),
+    Route("/api/v1/login/status", login_status_handler),
+    Route("/api/v1/login/qrcode", login_qrcode_handler),
+    Route("/api/v1/login/cookies", delete_cookies_handler, methods=["DELETE"]),
+    Route("/api/v1/feeds/list", list_feeds_handler),
+    Route("/api/v1/feeds/search", search_feeds_handler, methods=["GET", "POST"]),
+    Route("/api/v1/feeds/detail", feed_detail_handler, methods=["POST"]),
+    Route("/api/v1/user/profile", user_profile_handler, methods=["POST"]),
+    Route("/api/v1/user/me", my_profile_handler),
+    Route("/api/v1/feeds/comment", post_comment_handler, methods=["POST"]),
+    Route("/api/v1/feeds/comment/reply", reply_comment_handler, methods=["POST"]),
+    Route("/api/v1/feeds/like", like_feed_handler, methods=["POST"]),
+    Route("/api/v1/feeds/favorite", favorite_feed_handler, methods=["POST"]),
+    Route("/api/v1/publish", publish_handler, methods=["POST"]),
+    Route("/api/v1/publish_video", publish_video_handler, methods=["POST"]),
+    Route("/api/v1/debug/screenshot", debug_screenshot),
+]
+
+
 @asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Startup browser
+async def lifespan(app: Starlette):
+    # Start browser
     logger.info("Starting browser...")
     bm = await get_browser()
     await bm.start(headless=_headless)
     logger.info("Browser ready")
 
-    # Start MCP session manager (required for /mcp endpoint)
+    # Start MCP session manager (needed for /mcp endpoint)
     async with _session_manager.run():
-        logger.info("MCP session manager started")
+        logger.info("MCP session manager ready")
         yield
 
     # Shutdown browser
@@ -49,8 +86,16 @@ async def lifespan(app: FastAPI):
     logger.info("Browser stopped")
 
 
-# FastAPI app
-app = FastAPI(title="XHS MCP Server (Patchright)", lifespan=lifespan)
+# Build combined app
+# MCP's internal route handler expects path="/mcp", so mount at "/"
+# REST routes are listed first and take priority
+app = Starlette(
+    routes=[
+        *rest_routes,
+        Mount("/", app=mcp_app),
+    ],
+    lifespan=lifespan,
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -58,53 +103,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Mount REST API routes
-app.include_router(api_router)
-
-
-# Health check
-@app.get("/health")
-async def health():
-    return JSONResponse({"status": "ok"})
-
-
-# MCP endpoint — forward to session manager via ASGI
-@app.api_route("/mcp", methods=["GET", "POST", "DELETE"])
-async def mcp_handler(request: Request):
-    """Forward MCP protocol requests to session manager."""
-    response_body = []
-    response_headers = []
-    status_code = 200
-
-    async def receive():
-        body = await request.body()
-        return {"type": "http.request", "body": body}
-
-    async def send(message):
-        nonlocal status_code
-        if message["type"] == "http.response.start":
-            status_code = message["status"]
-            response_headers.extend(message.get("headers", []))
-        elif message["type"] == "http.response.body":
-            response_body.append(message.get("body", b""))
-
-    scope = dict(request.scope)
-    scope["path"] = "/mcp"
-
-    await _session_manager.handle_request(scope, receive, send)
-
-    headers = {}
-    for k, v in response_headers:
-        key = k.decode() if isinstance(k, bytes) else k
-        val = v.decode() if isinstance(v, bytes) else v
-        headers[key] = val
-
-    return Response(
-        content=b"".join(response_body),
-        status_code=status_code,
-        headers=headers,
-    )
 
 
 def main():
