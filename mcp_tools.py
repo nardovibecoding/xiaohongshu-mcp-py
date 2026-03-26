@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Nardo. AGPL-3.0 — see LICENSE
 """MCP tool definitions — 13 tools matching the Go implementation."""
 
 from mcp.server.fastmcp import FastMCP

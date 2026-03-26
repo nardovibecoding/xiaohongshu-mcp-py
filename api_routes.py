@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Nardo. AGPL-3.0 — see LICENSE
 """FastAPI REST API routes — 14 endpoints matching Go implementation."""
 
 from fastapi import APIRouter, Request
