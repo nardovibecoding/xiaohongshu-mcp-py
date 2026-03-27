@@ -10,7 +10,7 @@ logger = logging.getLogger("xhs.login")
 
 XHS_EXPLORE = "https://www.xiaohongshu.com/explore"
 LOGIN_INDICATOR = ".main-container .user .link-wrapper .channel"
-QRCODE_SELECTOR = ".login-container .qrcode-img"
+QRCODE_SELECTOR = ".qrcode-img"
 
 
 async def check_login_status() -> dict:
