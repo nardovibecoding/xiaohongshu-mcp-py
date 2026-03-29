@@ -2,7 +2,9 @@
 """XHS MCP Server — Starlette app with MCP + REST on same port."""
 
 import argparse
+import asyncio
 import logging
+import signal
 from contextlib import asynccontextmanager
 
 import uvicorn
@@ -35,6 +37,13 @@ async def health(request: Request):
     return JSONResponse({"status": "ok"})
 
 
+# Hot-reload: refresh cookies without restarting the server
+async def reload_handler(request: Request):
+    bm = await get_browser()
+    await bm.reload_cookies()
+    return JSONResponse({"status": "ok", "reloaded": "cookies"})
+
+
 # Import REST route handlers
 from api_routes import (
     login_status_handler, login_qrcode_handler, delete_cookies_handler,
@@ -49,6 +58,7 @@ from api_routes import (
 
 rest_routes = [
     Route("/health", health),
+    Route("/api/v1/reload", reload_handler, methods=["POST"]),
     Route("/api/v1/login/status", login_status_handler),
     Route("/api/v1/login/qrcode", login_qrcode_handler),
     Route("/api/v1/login/cookies", delete_cookies_handler, methods=["DELETE"]),
@@ -74,6 +84,11 @@ async def lifespan(app: Starlette):
     bm = await get_browser()
     await bm.start(headless=_headless)
     logger.info("Browser ready")
+
+    # SIGHUP → reload cookies without restart
+    loop = asyncio.get_event_loop()
+    loop.add_signal_handler(signal.SIGHUP, lambda: loop.create_task(bm.reload_cookies()))
+    logger.info("SIGHUP handler installed (kill -HUP <pid> to reload cookies)")
 
     # Start MCP session manager (needed for /mcp endpoint)
     async with _session_manager.run():
