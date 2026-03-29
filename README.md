@@ -4,6 +4,8 @@ MCP server for **小红书 (Xiaohongshu / RedNote)** — lets Claude and other A
 
 Built with Patchright (anti-detection Chromium) to avoid bot detection.
 
+XHS has no public API. Getting data out — or publishing — means fighting browser automation. This wraps the whole platform as MCP tools so you can search, post, and manage content from Claude Code directly.
+
 ## Tools (13)
 
 | Tool | What it does |
